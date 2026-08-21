@@ -8,6 +8,10 @@ import { requireUser } from '@/lib/auth/guard'
 const patchSchema = z.object({
   status: z.enum(['Active', 'Paused']).optional(),
   label: z.string().min(1).optional(),
+  broker: z.string().min(1).optional(),
+  accountNumber: z.string().min(1).optional(),
+  balance: z.coerce.number().nonnegative().optional(),
+  equity: z.coerce.number().nonnegative().optional(),
   vpsId: z.string().uuid().nullable().optional(),
 })
 
@@ -19,8 +23,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const parsed = patchSchema.safeParse(await req.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
 
-  const [row] = await db.update(accounts).set(parsed.data).where(eq(accounts.id, id)).returning()
-  if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  const [current] = await db.select().from(accounts).where(eq(accounts.id, id)).limit(1)
+  if (!current) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const values: Partial<typeof accounts.$inferInsert> = { ...parsed.data }
+  if ((parsed.data.broker !== undefined || parsed.data.accountNumber !== undefined) && parsed.data.label === undefined) {
+    const broker = parsed.data.broker ?? current.broker
+    const accountNumber = parsed.data.accountNumber ?? current.accountNumber
+    values.label = `${broker} · ${accountNumber}`
+  }
+
+  const [row] = await db.update(accounts).set(values).where(eq(accounts.id, id)).returning()
   return NextResponse.json({ account: row })
 }
 
