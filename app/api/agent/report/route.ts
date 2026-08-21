@@ -45,8 +45,13 @@ export async function POST(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
   const { account, robot: robotPayload, trades: tradePayload } = parsed.data
 
+  // Receiving a report at all already proves the EA is attached and alive,
+  // whether or not it currently has a position open — "active" only tells
+  // us whether it's flat or in a trade, which stays visible via the status
+  // message instead. "Stopped" is reserved for a robot that hasn't reported
+  // in a while (surfaced client-side from lastSeenAt), not the flat state.
   await db.update(robots).set({
-    status: robotPayload.active ? 'Running' : 'Stopped',
+    status: 'Running',
     orders: robotPayload.openPositions,
     lastSeenAt: new Date(),
     lastMessage: robotPayload.message ?? null,
