@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { eq, and, sql } from 'drizzle-orm'
+import { eq, and, ne, lt, isNotNull, sql } from 'drizzle-orm'
 import { db } from '@/lib/db/client'
 import { robots, accounts, trades } from '@/lib/db/schema'
+import { sendWhatsApp } from '@/lib/notify/fonnte'
+
+const OFFLINE_THRESHOLD_MS = 5 * 60 * 1000
 
 // Machine-to-machine endpoint: an EA (or its VPS agent) reports account and
 // robot status here, authenticated with the per-robot API key from the
@@ -55,6 +58,7 @@ export async function POST(req: Request) {
     orders: robotPayload.openPositions,
     lastSeenAt: new Date(),
     lastMessage: robotPayload.message ?? null,
+    offlineNotified: false,
   }).where(eq(robots.id, robot.id))
 
   await db.update(accounts).set({
@@ -65,6 +69,7 @@ export async function POST(req: Request) {
   }).where(eq(accounts.id, robot.accountId))
 
   let inserted = 0
+  let accountLabel: string | null = null
   for (const t of tradePayload ?? []) {
     const [existing] = await db.select({ id: trades.id }).from(trades)
       .where(and(eq(trades.accountId, robot.accountId), eq(trades.tradeRef, t.ticket)))
@@ -82,6 +87,14 @@ export async function POST(req: Request) {
       openedAt: t.closedAt ? new Date(t.closedAt) : new Date(),
     })
     inserted++
+
+    if (accountLabel === null) {
+      const [acc] = await db.select({ label: accounts.label }).from(accounts).where(eq(accounts.id, robot.accountId)).limit(1)
+      accountLabel = acc?.label ?? robot.accountId
+    }
+    const resultLabel = t.pnl >= 0 ? '✅ WIN' : '❌ LOSS'
+    await sendWhatsApp('tradeClosed',
+      `${resultLabel} ${t.symbol} ${t.side} ${t.lots.toFixed(2)} lot\nP/L: ${t.pnl >= 0 ? '+' : ''}$${t.pnl.toFixed(2)}\nAkun: ${accountLabel}\nRobot: ${robot.name}`)
   }
 
   if (inserted > 0) {
@@ -93,6 +106,22 @@ export async function POST(req: Request) {
     const wins = Number(stats?.wins ?? 0)
     const winRate = total > 0 ? Math.round((wins / total) * 1000) / 10 : 0
     await db.update(accounts).set({ trades: total, winRate }).where(eq(accounts.id, robot.accountId))
+  }
+
+  // Piggyback offline detection on incoming reports rather than a cron job:
+  // any robot that's gone quiet gets flagged (once) whenever another robot
+  // reports in. Won't catch every robot going dark at the same time, but
+  // needs no extra infrastructure.
+  const staleCutoff = new Date(Date.now() - OFFLINE_THRESHOLD_MS)
+  const staleRobots = await db.select().from(robots).where(and(
+    ne(robots.id, robot.id),
+    eq(robots.offlineNotified, false),
+    isNotNull(robots.lastSeenAt),
+    lt(robots.lastSeenAt, staleCutoff),
+  ))
+  for (const r of staleRobots) {
+    await db.update(robots).set({ offlineNotified: true }).where(eq(robots.id, r.id))
+    await sendWhatsApp('robotOffline', `⚠️ Robot "${r.name}" belum lapor lebih dari 5 menit.\nTerakhir lapor: ${r.lastSeenAt?.toLocaleString('id-ID')}`)
   }
 
   return NextResponse.json({ ok: true, tradesInserted: inserted })

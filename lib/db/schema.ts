@@ -49,6 +49,7 @@ export const robots = pgTable('robots', {
   apiKey: text('api_key').unique(),
   lastSeenAt: timestamp('last_seen_at'),
   lastMessage: text('last_message'),
+  offlineNotified: boolean('offline_notified').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
@@ -93,4 +94,15 @@ export const profitShareLedger = pgTable('profit_share_ledger', {
   amount: doublePrecision('amount').notNull(),
   status: text('status', { enum: ['pending', 'paid'] }).notNull().default('pending'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
+// Single-row settings for WhatsApp (Fonnte) notifications.
+export const notificationSettings = pgTable('notification_settings', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  fonnteToken: text('fonnte_token'),
+  recipientPhone: text('recipient_phone'),
+  notifyTradeClosed: boolean('notify_trade_closed').notNull().default(true),
+  notifyRobotOffline: boolean('notify_robot_offline').notNull().default(true),
+  notifyWithdrawal: boolean('notify_withdrawal').notNull().default(true),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
