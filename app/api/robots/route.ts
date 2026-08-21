@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { randomBytes } from 'crypto'
 import { z } from 'zod'
 import { db } from '@/lib/db/client'
 import { robots } from '@/lib/db/schema'
@@ -33,6 +34,7 @@ export async function POST(req: Request) {
     orders: 0,
     execution: 0,
     risk: 'Moderate',
+    apiKey: randomBytes(24).toString('hex'),
   }).returning()
 
   return NextResponse.json({ robot: row }, { status: 201 })

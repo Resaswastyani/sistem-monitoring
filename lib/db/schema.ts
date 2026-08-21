@@ -46,6 +46,9 @@ export const robots = pgTable('robots', {
   orders: integer('orders').notNull().default(0),
   execution: doublePrecision('execution').notNull().default(0),
   risk: text('risk').notNull().default('Moderate'),
+  apiKey: text('api_key').unique(),
+  lastSeenAt: timestamp('last_seen_at'),
+  lastMessage: text('last_message'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 

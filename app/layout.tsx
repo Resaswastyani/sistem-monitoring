@@ -3,7 +3,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'PropVault — Trading Operations',
+  title: 'Forex For Better Living — Trading Operations',
   description: 'Monitor trading performance, connected accounts, and robot operations in one place.',
   generator: 'v0.app',
 }
