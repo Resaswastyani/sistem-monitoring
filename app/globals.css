@@ -108,3 +108,12 @@ button { cursor:pointer; }
 .login-screen { min-height:100vh; display:grid; place-items:center; padding:24px; background:var(--background); color:var(--foreground); }
 .login-card { width:min(100%,430px); display:flex; flex-direction:column; gap:18px; padding:32px; border:1px solid var(--border); border-radius:18px; background:var(--card); box-shadow:0 24px 80px rgba(0,0,0,.2); }.login-card .brand { padding:0 0 12px; }.login-card h1 { margin:0; font-size:36px; letter-spacing:-1.5px; }.login-card p { margin:0; color:var(--muted-foreground); line-height:1.5; }.login-card form { display:flex; flex-direction:column; gap:14px; }.login-card label { display:grid; gap:7px; color:var(--muted-foreground); font-size:12px; font-weight:600; }.login-card input { width:100%; min-height:42px; border:1px solid var(--border); border-radius:8px; padding:0 12px; background:var(--background); color:var(--foreground); }.demo-credentials { display:flex; flex-direction:column; gap:4px; padding:13px; border-radius:10px; background:color-mix(in srgb, var(--primary) 10%, transparent); color:var(--muted-foreground); font-size:12px; }.demo-credentials strong { color:var(--foreground); }.quick-control-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:20px; }.quick-control { display:flex; flex-direction:column; align-items:flex-start; gap:8px; min-height:128px; padding:16px; border:1px solid var(--border); border-radius:11px; background:var(--panel2); color:var(--text); text-align:left; }.quick-control svg { color:var(--primary); }.quick-control span { color:var(--dim); font-size:11px; line-height:1.4; }
 @media (max-width:620px) { .quick-control-grid { grid-template-columns:1fr; } }
+
+/* Equity chart responsiveness: .dashboard-grid never collapsed below desktop
+   width, so the chart panel + side panel (min 280px) overflowed on tablet
+   and mobile. .y-axis/.equity-chart also lacked flex sizing, letting the
+   SVG's width:100% fight its sibling for space instead of sharing it. */
+.y-axis { flex: none; }
+.equity-chart { flex: 1 1 auto; min-width: 0; }
+@media (max-width: 900px) { .dashboard-grid, .lower-grid { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .chart-wrap { height: 140px; } .equity-legend { margin-left: 0; } }

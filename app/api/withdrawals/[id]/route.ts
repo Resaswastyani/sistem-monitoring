@@ -2,9 +2,10 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { eq, and } from 'drizzle-orm'
 import { db } from '@/lib/db/client'
-import { withdrawals, profitShareRules, profitShareLedger, accounts } from '@/lib/db/schema'
+import { withdrawals, accounts } from '@/lib/db/schema'
 import { requireUser } from '@/lib/auth/guard'
 import { sendWhatsApp } from '@/lib/notify/fonnte'
+import { computeProfitShareLedger } from '@/lib/withdrawals/profit-share'
 
 const patchSchema = z.object({
   status: z.enum(['pending', 'completed']),
@@ -28,21 +29,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   if (!withdrawal) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  let ledger: (typeof profitShareLedger.$inferSelect)[] = []
+  let ledger: Awaited<ReturnType<typeof computeProfitShareLedger>> = []
   if (parsed.data.status === 'completed') {
-    const rules = await db.select().from(profitShareRules).where(eq(profitShareRules.active, true))
-    if (rules.length) {
-      ledger = await db.insert(profitShareLedger).values(
-        rules.map((rule) => ({
-          withdrawalId: withdrawal.id,
-          ruleId: rule.id,
-          recipientName: rule.recipientName,
-          percentage: rule.percentage,
-          amount: Math.round(withdrawal.amount * (rule.percentage / 100) * 100) / 100,
-          status: 'pending' as const,
-        }))
-      ).returning()
-    }
+    ledger = await computeProfitShareLedger(withdrawal.id, withdrawal.amount)
 
     const [acc] = await db.select({ label: accounts.label }).from(accounts).where(eq(accounts.id, withdrawal.accountId)).limit(1)
     let msg = `✅ Withdrawal selesai\nAkun: ${acc?.label ?? withdrawal.accountId}\nJumlah: $${withdrawal.amount.toFixed(2)}`

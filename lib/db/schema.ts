@@ -63,6 +63,7 @@ export const trades = pgTable('trades', {
   openPrice: doublePrecision('open_price').notNull(),
   closePrice: doublePrecision('close_price').notNull(),
   pnl: doublePrecision('pnl').notNull(),
+  source: text('source', { enum: ['robot', 'manual'] }).notNull().default('robot'),
   openedAt: timestamp('opened_at').notNull().defaultNow(),
 })
 
@@ -72,6 +73,8 @@ export const withdrawals = pgTable('withdrawals', {
   amount: doublePrecision('amount').notNull(),
   method: text('method').notNull().default('Bank transfer'),
   status: text('status', { enum: ['pending', 'completed'] }).notNull().default('pending'),
+  source: text('source', { enum: ['manual', 'exness_detected'] }).notNull().default('manual'),
+  externalRef: text('external_ref'),
   requestedByUserId: uuid('requested_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   completedAt: timestamp('completed_at'),

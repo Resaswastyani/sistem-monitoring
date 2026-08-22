@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { eq, and, ne, lt, isNotNull, sql } from 'drizzle-orm'
 import { db } from '@/lib/db/client'
-import { robots, accounts, trades } from '@/lib/db/schema'
+import { robots, accounts, trades, withdrawals } from '@/lib/db/schema'
 import { sendWhatsApp } from '@/lib/notify/fonnte'
+import { computeProfitShareLedger } from '@/lib/withdrawals/profit-share'
 
 const OFFLINE_THRESHOLD_MS = 5 * 60 * 1000
 
@@ -22,6 +23,13 @@ const tradeSchema = z.object({
   closedAt: z.string().optional(),
 })
 
+const balanceEventSchema = z.object({
+  ticket: z.string().min(1),
+  type: z.enum(['withdrawal', 'deposit']),
+  amount: z.coerce.number().positive(),
+  time: z.string().optional(),
+})
+
 const bodySchema = z.object({
   account: z.object({
     balance: z.coerce.number(),
@@ -35,7 +43,33 @@ const bodySchema = z.object({
     message: z.string().max(500).optional(),
   }),
   trades: z.array(tradeSchema).max(50).optional(),
+  manualTrades: z.array(tradeSchema).max(50).optional(),
+  balanceEvents: z.array(balanceEventSchema).max(50).optional(),
 })
+
+async function insertTrades(list: z.infer<typeof tradeSchema>[], accountId: string, source: 'robot' | 'manual') {
+  let count = 0
+  for (const t of list) {
+    const [existing] = await db.select({ id: trades.id }).from(trades)
+      .where(and(eq(trades.accountId, accountId), eq(trades.tradeRef, t.ticket)))
+      .limit(1)
+    if (existing) continue
+    await db.insert(trades).values({
+      accountId,
+      tradeRef: t.ticket,
+      symbol: t.symbol,
+      side: t.side,
+      lots: t.lots,
+      openPrice: t.openPrice,
+      closePrice: t.closePrice,
+      pnl: t.pnl,
+      source,
+      openedAt: t.closedAt ? new Date(t.closedAt) : new Date(),
+    })
+    count++
+  }
+  return count
+}
 
 export async function POST(req: Request) {
   const apiKey = req.headers.get('x-api-key')
@@ -46,7 +80,7 @@ export async function POST(req: Request) {
 
   const parsed = bodySchema.safeParse(await req.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
-  const { account, robot: robotPayload, trades: tradePayload } = parsed.data
+  const { account, robot: robotPayload, trades: tradePayload, manualTrades: manualPayload, balanceEvents: balancePayload } = parsed.data
 
   // Receiving a report at all already proves the EA is attached and alive,
   // whether or not it currently has a position open — "active" only tells
@@ -68,44 +102,65 @@ export async function POST(req: Request) {
     pnl: account.profit ?? 0,
   }).where(eq(accounts.id, robot.accountId))
 
-  let inserted = 0
   let accountLabel: string | null = null
-  for (const t of tradePayload ?? []) {
-    const [existing] = await db.select({ id: trades.id }).from(trades)
-      .where(and(eq(trades.accountId, robot.accountId), eq(trades.tradeRef, t.ticket)))
-      .limit(1)
-    if (existing) continue
-    await db.insert(trades).values({
-      accountId: robot.accountId,
-      tradeRef: t.ticket,
-      symbol: t.symbol,
-      side: t.side,
-      lots: t.lots,
-      openPrice: t.openPrice,
-      closePrice: t.closePrice,
-      pnl: t.pnl,
-      openedAt: t.closedAt ? new Date(t.closedAt) : new Date(),
-    })
-    inserted++
-
+  const getAccountLabel = async () => {
     if (accountLabel === null) {
       const [acc] = await db.select({ label: accounts.label }).from(accounts).where(eq(accounts.id, robot.accountId)).limit(1)
       accountLabel = acc?.label ?? robot.accountId
     }
+    return accountLabel
+  }
+
+  const inserted = await insertTrades(tradePayload ?? [], robot.accountId, 'robot')
+  for (const t of tradePayload ?? []) {
     const resultLabel = t.pnl >= 0 ? '✅ WIN' : '❌ LOSS'
     await sendWhatsApp('tradeClosed',
-      `${resultLabel} ${t.symbol} ${t.side} ${t.lots.toFixed(2)} lot\nP/L: ${t.pnl >= 0 ? '+' : ''}$${t.pnl.toFixed(2)}\nAkun: ${accountLabel}\nRobot: ${robot.name}`)
+      `${resultLabel} ${t.symbol} ${t.side} ${t.lots.toFixed(2)} lot\nP/L: ${t.pnl >= 0 ? '+' : ''}$${t.pnl.toFixed(2)}\nAkun: ${await getAccountLabel()}\nRobot: ${robot.name}`)
+  }
+
+  const manualInserted = await insertTrades(manualPayload ?? [], robot.accountId, 'manual')
+  for (const t of manualPayload ?? []) {
+    await sendWhatsApp('tradeClosed',
+      `⚠️ MANUAL trade terdeteksi (bukan dari robot)\n${t.symbol} ${t.side} ${t.lots.toFixed(2)} lot\nP/L: ${t.pnl >= 0 ? '+' : ''}$${t.pnl.toFixed(2)}\nAkun: ${await getAccountLabel()}`)
   }
 
   if (inserted > 0) {
     const [stats] = await db.select({
       total: sql<number>`count(*)`,
       wins: sql<number>`count(*) filter (where ${trades.pnl} > 0)`,
-    }).from(trades).where(eq(trades.accountId, robot.accountId))
+    }).from(trades).where(and(eq(trades.accountId, robot.accountId), eq(trades.source, 'robot')))
     const total = Number(stats?.total ?? 0)
     const wins = Number(stats?.wins ?? 0)
     const winRate = total > 0 ? Math.round((wins / total) * 1000) / 10 : 0
     await db.update(accounts).set({ trades: total, winRate }).where(eq(accounts.id, robot.accountId))
+  }
+
+  // Balance operations booked directly on the Exness account (withdrawals
+  // the client made themselves, outside this dashboard) — recorded as
+  // already-completed withdrawals so profit-share still gets computed.
+  for (const b of (balancePayload ?? []).filter((e) => e.type === 'withdrawal')) {
+    const [existing] = await db.select({ id: withdrawals.id }).from(withdrawals)
+      .where(and(eq(withdrawals.accountId, robot.accountId), eq(withdrawals.externalRef, b.ticket)))
+      .limit(1)
+    if (existing) continue
+
+    const completedAt = b.time ? new Date(b.time) : new Date()
+    const [withdrawal] = await db.insert(withdrawals).values({
+      accountId: robot.accountId,
+      amount: b.amount,
+      method: 'Exness (auto-detected)',
+      status: 'completed',
+      source: 'exness_detected',
+      externalRef: b.ticket,
+      completedAt,
+    }).returning()
+
+    const ledger = await computeProfitShareLedger(withdrawal.id, withdrawal.amount)
+    let msg = `🏧 Withdrawal terdeteksi langsung dari Exness\nAkun: ${await getAccountLabel()}\nJumlah: $${b.amount.toFixed(2)}`
+    if (ledger.length) {
+      msg += '\nSplit profit-sharing:\n' + ledger.map((l) => `- ${l.recipientName}: $${l.amount.toFixed(2)} (${l.percentage}%)`).join('\n')
+    }
+    await sendWhatsApp('withdrawal', msg)
   }
 
   // Piggyback offline detection on incoming reports rather than a cron job:
@@ -124,5 +179,5 @@ export async function POST(req: Request) {
     await sendWhatsApp('robotOffline', `⚠️ Robot "${r.name}" belum lapor lebih dari 5 menit.\nTerakhir lapor: ${r.lastSeenAt?.toLocaleString('id-ID')}`)
   }
 
-  return NextResponse.json({ ok: true, tradesInserted: inserted })
+  return NextResponse.json({ ok: true, tradesInserted: inserted, manualTradesInserted: manualInserted })
 }
