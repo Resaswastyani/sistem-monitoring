@@ -13,22 +13,14 @@ export async function GET() {
 
   const [row] = await db.select().from(notificationSettings).limit(1)
   return NextResponse.json({
-    settings: row ?? {
-      fonnteToken: '',
-      recipientPhone: '',
-      notifyTradeClosed: true,
-      notifyRobotOffline: true,
-      notifyWithdrawal: true,
-    },
+    settings: row ?? { gatewayUrl: '', gatewayApiKey: '', ownerPhone: '' },
   })
 }
 
 const patchSchema = z.object({
-  fonnteToken: z.string().optional(),
-  recipientPhone: z.string().optional(),
-  notifyTradeClosed: z.boolean().optional(),
-  notifyRobotOffline: z.boolean().optional(),
-  notifyWithdrawal: z.boolean().optional(),
+  gatewayUrl: z.string().optional(),
+  gatewayApiKey: z.string().optional(),
+  ownerPhone: z.string().optional(),
 })
 
 export async function PATCH(req: Request) {

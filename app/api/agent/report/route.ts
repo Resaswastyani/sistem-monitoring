@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { eq, and, ne, lt, isNotNull, sql } from 'drizzle-orm'
 import { db } from '@/lib/db/client'
 import { robots, accounts, trades, withdrawals } from '@/lib/db/schema'
-import { sendWhatsApp } from '@/lib/notify/fonnte'
+import { notifyEvent, accountContext } from '@/lib/notify/whatsapp'
 import { computeProfitShareLedger } from '@/lib/withdrawals/profit-share'
 
 const OFFLINE_THRESHOLD_MS = 5 * 60 * 1000
@@ -82,6 +82,10 @@ export async function POST(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
   const { account, robot: robotPayload, trades: tradePayload, manualTrades: manualPayload, balanceEvents: balancePayload } = parsed.data
 
+  // Robot came back online (or connected for the first time ever) if it was
+  // previously flagged offline, or never had a lastSeenAt at all.
+  const isRecovery = robot.offlineNotified || robot.lastSeenAt === null
+
   // Receiving a report at all already proves the EA is attached and alive,
   // whether or not it currently has a position open — "active" only tells
   // us whether it's flat or in a trade, which stays visible via the status
@@ -102,26 +106,23 @@ export async function POST(req: Request) {
     pnl: account.profit ?? 0,
   }).where(eq(accounts.id, robot.accountId))
 
-  let accountLabel: string | null = null
-  const getAccountLabel = async () => {
-    if (accountLabel === null) {
-      const [acc] = await db.select({ label: accounts.label }).from(accounts).where(eq(accounts.id, robot.accountId)).limit(1)
-      accountLabel = acc?.label ?? robot.accountId
-    }
-    return accountLabel
+  if (isRecovery) {
+    await notifyEvent('robot_status', `🟢 Robot "${robot.name}" ONLINE\n${await accountContext(robot.accountId)}`, { accountId: robot.accountId })
   }
 
   const inserted = await insertTrades(tradePayload ?? [], robot.accountId, 'robot')
   for (const t of tradePayload ?? []) {
     const resultLabel = t.pnl >= 0 ? '✅ WIN' : '❌ LOSS'
-    await sendWhatsApp('tradeClosed',
-      `${resultLabel} ${t.symbol} ${t.side} ${t.lots.toFixed(2)} lot\nP/L: ${t.pnl >= 0 ? '+' : ''}$${t.pnl.toFixed(2)}\nAkun: ${await getAccountLabel()}\nRobot: ${robot.name}`)
+    await notifyEvent('trade_closed',
+      `${resultLabel} ${t.symbol} ${t.side} ${t.lots.toFixed(2)} lot\nP/L: ${t.pnl >= 0 ? '+' : ''}$${t.pnl.toFixed(2)}\nRobot: ${robot.name}\n${await accountContext(robot.accountId)}`,
+      { accountId: robot.accountId })
   }
 
   const manualInserted = await insertTrades(manualPayload ?? [], robot.accountId, 'manual')
   for (const t of manualPayload ?? []) {
-    await sendWhatsApp('tradeClosed',
-      `⚠️ MANUAL trade terdeteksi (bukan dari robot)\n${t.symbol} ${t.side} ${t.lots.toFixed(2)} lot\nP/L: ${t.pnl >= 0 ? '+' : ''}$${t.pnl.toFixed(2)}\nAkun: ${await getAccountLabel()}`)
+    await notifyEvent('manual_trade',
+      `⚠️ MANUAL trade terdeteksi (bukan dari robot)\n${t.symbol} ${t.side} ${t.lots.toFixed(2)} lot\nP/L: ${t.pnl >= 0 ? '+' : ''}$${t.pnl.toFixed(2)}\n${await accountContext(robot.accountId)}`,
+      { accountId: robot.accountId })
   }
 
   if (inserted > 0) {
@@ -156,11 +157,12 @@ export async function POST(req: Request) {
     }).returning()
 
     const ledger = await computeProfitShareLedger(withdrawal.id, withdrawal.amount)
-    let msg = `🏧 Withdrawal terdeteksi langsung dari Exness\nAkun: ${await getAccountLabel()}\nJumlah: $${b.amount.toFixed(2)}`
+    let msg = `🏧 Withdrawal terdeteksi langsung dari Exness\nJumlah: $${b.amount.toFixed(2)}`
     if (ledger.length) {
       msg += '\nSplit profit-sharing:\n' + ledger.map((l) => `- ${l.recipientName}: $${l.amount.toFixed(2)} (${l.percentage}%)`).join('\n')
     }
-    await sendWhatsApp('withdrawal', msg)
+    msg += `\n${await accountContext(robot.accountId)}`
+    await notifyEvent('withdrawal', msg, { accountId: robot.accountId })
   }
 
   // Piggyback offline detection on incoming reports rather than a cron job:
@@ -176,7 +178,9 @@ export async function POST(req: Request) {
   ))
   for (const r of staleRobots) {
     await db.update(robots).set({ offlineNotified: true }).where(eq(robots.id, r.id))
-    await sendWhatsApp('robotOffline', `⚠️ Robot "${r.name}" belum lapor lebih dari 5 menit.\nTerakhir lapor: ${r.lastSeenAt?.toLocaleString('id-ID')}`)
+    await notifyEvent('robot_status',
+      `🔴 Robot "${r.name}" OFFLINE — belum lapor lebih dari 5 menit.\nTerakhir lapor: ${r.lastSeenAt?.toLocaleString('id-ID')}\n${await accountContext(r.accountId)}`,
+      { accountId: r.accountId })
   }
 
   return NextResponse.json({ ok: true, tradesInserted: inserted, manualTradesInserted: manualInserted })

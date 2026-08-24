@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { desc, eq } from 'drizzle-orm'
+import { desc } from 'drizzle-orm'
 import { db } from '@/lib/db/client'
-import { withdrawals, accounts } from '@/lib/db/schema'
+import { withdrawals } from '@/lib/db/schema'
 import { requireUser } from '@/lib/auth/guard'
-import { sendWhatsApp } from '@/lib/notify/fonnte'
+import { notifyEvent, accountContext } from '@/lib/notify/whatsapp'
 
 export async function GET() {
   const rows = await db.select().from(withdrawals).orderBy(desc(withdrawals.createdAt))
@@ -33,8 +33,7 @@ export async function POST(req: Request) {
     requestedByUserId: session.userId,
   }).returning()
 
-  const [acc] = await db.select({ label: accounts.label }).from(accounts).where(eq(accounts.id, accountId)).limit(1)
-  await sendWhatsApp('withdrawal', `🆕 Withdrawal baru diminta\nAkun: ${acc?.label ?? accountId}\nJumlah: $${amount.toFixed(2)}\nMetode: ${row.method}`)
+  await notifyEvent('withdrawal', `🆕 Withdrawal baru diminta\nJumlah: $${amount.toFixed(2)}\nMetode: ${row.method}\n${await accountContext(accountId)}`, { accountId })
 
   return NextResponse.json({ withdrawal: row }, { status: 201 })
 }

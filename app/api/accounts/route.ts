@@ -12,6 +12,8 @@ export async function GET() {
 const createSchema = z.object({
   broker: z.string().min(1),
   accountNumber: z.string().min(1),
+  customerName: z.string().optional(),
+  customerPhone: z.string().optional(),
   vpsId: z.string().uuid().nullable().optional(),
   balance: z.coerce.number().nonnegative(),
 })
@@ -22,12 +24,14 @@ export async function POST(req: Request) {
 
   const parsed = createSchema.safeParse(await req.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
-  const { broker, accountNumber, vpsId, balance } = parsed.data
+  const { broker, accountNumber, customerName, customerPhone, vpsId, balance } = parsed.data
 
   const [row] = await db.insert(accounts).values({
     label: `${broker} · ${accountNumber}`,
     broker,
     accountNumber,
+    customerName: customerName || null,
+    customerPhone: customerPhone || null,
     status: 'Active',
     equity: balance,
     balance,

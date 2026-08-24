@@ -2,9 +2,9 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { eq, and } from 'drizzle-orm'
 import { db } from '@/lib/db/client'
-import { withdrawals, accounts } from '@/lib/db/schema'
+import { withdrawals } from '@/lib/db/schema'
 import { requireUser } from '@/lib/auth/guard'
-import { sendWhatsApp } from '@/lib/notify/fonnte'
+import { notifyEvent, accountContext } from '@/lib/notify/whatsapp'
 import { computeProfitShareLedger } from '@/lib/withdrawals/profit-share'
 
 const patchSchema = z.object({
@@ -33,12 +33,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (parsed.data.status === 'completed') {
     ledger = await computeProfitShareLedger(withdrawal.id, withdrawal.amount)
 
-    const [acc] = await db.select({ label: accounts.label }).from(accounts).where(eq(accounts.id, withdrawal.accountId)).limit(1)
-    let msg = `✅ Withdrawal selesai\nAkun: ${acc?.label ?? withdrawal.accountId}\nJumlah: $${withdrawal.amount.toFixed(2)}`
+    let msg = `✅ Withdrawal selesai\nJumlah: $${withdrawal.amount.toFixed(2)}`
     if (ledger.length) {
       msg += '\nSplit profit-sharing:\n' + ledger.map((l) => `- ${l.recipientName}: $${l.amount.toFixed(2)} (${l.percentage}%)`).join('\n')
     }
-    await sendWhatsApp('withdrawal', msg)
+    msg += `\n${await accountContext(withdrawal.accountId)}`
+    await notifyEvent('withdrawal', msg, { accountId: withdrawal.accountId })
   }
 
   return NextResponse.json({ withdrawal, ledger })

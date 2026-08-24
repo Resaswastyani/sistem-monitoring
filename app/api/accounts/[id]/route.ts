@@ -10,6 +10,8 @@ const patchSchema = z.object({
   label: z.string().min(1).optional(),
   broker: z.string().min(1).optional(),
   accountNumber: z.string().min(1).optional(),
+  customerName: z.string().optional(),
+  customerPhone: z.string().optional(),
   balance: z.coerce.number().nonnegative().optional(),
   equity: z.coerce.number().nonnegative().optional(),
   vpsId: z.string().uuid().nullable().optional(),

@@ -25,6 +25,8 @@ export const accounts = pgTable('accounts', {
   label: text('label').notNull(),
   broker: text('broker').notNull(),
   accountNumber: text('account_number').notNull(),
+  customerName: text('customer_name'),
+  customerPhone: text('customer_phone'),
   status: text('status', { enum: ['Active', 'Paused'] }).notNull().default('Active'),
   equity: doublePrecision('equity').notNull().default(0),
   balance: doublePrecision('balance').notNull().default(0),
@@ -99,13 +101,21 @@ export const profitShareLedger = pgTable('profit_share_ledger', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
-// Single-row settings for WhatsApp (Fonnte) notifications.
+// Single-row settings for the self-hosted Baileys WhatsApp gateway.
 export const notificationSettings = pgTable('notification_settings', {
   id: uuid('id').primaryKey().defaultRandom(),
-  fonnteToken: text('fonnte_token'),
-  recipientPhone: text('recipient_phone'),
-  notifyTradeClosed: boolean('notify_trade_closed').notNull().default(true),
-  notifyRobotOffline: boolean('notify_robot_offline').notNull().default(true),
-  notifyWithdrawal: boolean('notify_withdrawal').notNull().default(true),
+  gatewayUrl: text('gateway_url'),
+  gatewayApiKey: text('gateway_api_key'),
+  ownerPhone: text('owner_phone'),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
+// One row per event type, controlling whether the workspace owner and/or
+// the account's customer get a WhatsApp message when it happens.
+export const notificationRules = pgTable('notification_rules', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  eventType: text('event_type', { enum: ['trade_closed', 'manual_trade', 'withdrawal', 'robot_status'] }).notNull().unique(),
+  active: boolean('active').notNull().default(true),
+  notifyOwner: boolean('notify_owner').notNull().default(true),
+  notifyClient: boolean('notify_client').notNull().default(true),
 })
