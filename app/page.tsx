@@ -274,6 +274,23 @@ export default function Home() {
     }
   }
 
+  const messageTemplates: Record<EventType, string> = {
+    trade_closed: '✅ Update trade\n[Symbol] [BUY/SELL] [lot] lot\nP/L: [isi P/L]',
+    manual_trade: '⚠️ Konfirmasi: apakah Anda baru saja melakukan trading manual di akun ini?',
+    withdrawal: '🏧 Update withdrawal\nJumlah: [isi jumlah]\nStatus: [isi status]',
+    robot_status: '🤖 Update status robot\nRobot: [isi nama robot]\nStatus: [Online/Offline]',
+  }
+  const applyMessageTemplate = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const type = e.target.value as EventType | 'manual'
+    const form = e.target.form
+    const textarea = form?.elements.namedItem('message') as HTMLTextAreaElement | null
+    if (!textarea || type === 'manual') return
+    const targetVal = (form?.elements.namedItem('target') as HTMLSelectElement | null)?.value
+    const acc = accounts.find(a => a.id === targetVal)
+    const ctx = acc ? `\n\nKlien: ${acc.customerName ?? '-'}\nAkun: ${acc.label}\nDeposit: ${money(acc.balance)}` : ''
+    textarea.value = messageTemplates[type] + ctx
+  }
+
   const submitManualSend = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setManualSendResult(null)
@@ -353,7 +370,7 @@ export default function Home() {
 
     <section className="panel" style={{ marginTop: 16 }}><div className="panel-head"><div><h2>Notification rules</h2><p>Pilih siapa yang menerima WA untuk tiap jenis kejadian.</p></div></div><div style={{ marginTop: 16 }}>{notifRules.map(r => <div className="notify-rule-card" key={r.eventType}><div className="notify-rule-row"><div className="rule-name"><b>{eventTypeLabels[r.eventType]}</b></div><label className="toggle-col rule-active"><span className="toggle"><input type="checkbox" checked={r.active} onChange={e => updateNotifRule(r.eventType, { active: e.target.checked })} /><span className="slider" /></span><span>Aktif</span></label><label className="toggle-col"><span className="toggle"><input type="checkbox" checked={r.notifyOwner} onChange={e => updateNotifRule(r.eventType, { notifyOwner: e.target.checked })} /><span className="slider" /></span><span>Notify owner</span></label><label className="toggle-col"><span className="toggle"><input type="checkbox" checked={r.notifyClient} onChange={e => updateNotifRule(r.eventType, { notifyClient: e.target.checked })} /><span className="slider" /></span><span>Notify client</span></label></div></div>)}</div></section>
 
-    <section className="panel" style={{ marginTop: 16 }}><div className="panel-head"><div><h2>Kirim pesan manual</h2><p>Kirim WA langsung ke owner atau customer tertentu, di luar notifikasi otomatis.</p></div></div><form className="vps-form" onSubmit={submitManualSend}><label>Kirim ke<select name="target" required defaultValue=""><option value="" disabled>Pilih penerima</option><option value="owner">Owner (nomor sendiri)</option>{accounts.filter(a => a.customerPhone).map(a => <option key={a.id} value={a.id}>{a.customerName ?? a.label} — {a.label}</option>)}</select></label><label>Pesan<textarea name="message" required className="wa-textarea" placeholder="Tulis pesan..." /></label><div className="vps-form-actions"><button type="submit" className="primary-button" disabled={manualSending}><Send />{manualSending ? 'Mengirim…' : 'Kirim'}</button></div>{manualSendResult && <div className={`manual-send-result ${manualSendResult.ok ? 'ok' : 'error'}`}>{manualSendResult.ok ? 'Pesan berhasil dikirim.' : `Gagal: ${manualSendResult.error}`}</div>}</form></section>
+    <section className="panel" style={{ marginTop: 16 }}><div className="panel-head"><div><h2>Kirim pesan manual</h2><p>Kirim WA langsung ke owner atau customer tertentu, di luar notifikasi otomatis.</p></div></div><form className="vps-form" onSubmit={submitManualSend}><label>Kirim ke<select name="target" required defaultValue=""><option value="" disabled>Pilih penerima</option><option value="owner">Owner (nomor sendiri)</option>{accounts.filter(a => a.customerPhone).map(a => <option key={a.id} value={a.id}>{a.customerName ?? a.label} — {a.label}</option>)}</select></label><label>Jenis pesan<select defaultValue="manual" onChange={applyMessageTemplate}><option value="manual">Pesan manual (bebas)</option><option value="trade_closed">Notifikasi: {eventTypeLabels.trade_closed}</option><option value="manual_trade">Notifikasi: {eventTypeLabels.manual_trade}</option><option value="withdrawal">Notifikasi: {eventTypeLabels.withdrawal}</option><option value="robot_status">Notifikasi: {eventTypeLabels.robot_status}</option></select><span style={{ display: 'block', fontSize: 11, color: 'var(--dim)', fontWeight: 400, marginTop: 4 }}>Pilih template notifikasi untuk mengisi pesan otomatis, atau tetap di "Pesan manual" untuk menulis bebas.</span></label><label>Pesan<textarea name="message" required className="wa-textarea" placeholder="Tulis pesan..." /></label><div className="vps-form-actions"><button type="submit" className="primary-button" disabled={manualSending}><Send />{manualSending ? 'Mengirim…' : 'Kirim'}</button></div>{manualSendResult && <div className={`manual-send-result ${manualSendResult.ok ? 'ok' : 'error'}`}>{manualSendResult.ok ? 'Pesan berhasil dikirim.' : `Gagal: ${manualSendResult.error}`}</div>}</form></section>
   </>
 
   const page = active === 'Overview' ? overview
