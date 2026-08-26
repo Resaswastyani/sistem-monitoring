@@ -28,6 +28,7 @@ export const accounts = pgTable('accounts', {
   customerName: text('customer_name'),
   customerPhone: text('customer_phone'),
   status: text('status', { enum: ['Active', 'Paused'] }).notNull().default('Active'),
+  initialDeposit: doublePrecision('initial_deposit').notNull().default(0),
   equity: doublePrecision('equity').notNull().default(0),
   balance: doublePrecision('balance').notNull().default(0),
   pnl: doublePrecision('pnl').notNull().default(0),

@@ -16,6 +16,7 @@ const createSchema = z.object({
   customerPhone: z.string().optional(),
   vpsId: z.string().uuid().nullable().optional(),
   balance: z.coerce.number().nonnegative(),
+  initialDeposit: z.coerce.number().nonnegative().optional(),
 })
 
 export async function POST(req: Request) {
@@ -24,7 +25,7 @@ export async function POST(req: Request) {
 
   const parsed = createSchema.safeParse(await req.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
-  const { broker, accountNumber, customerName, customerPhone, vpsId, balance } = parsed.data
+  const { broker, accountNumber, customerName, customerPhone, vpsId, balance, initialDeposit } = parsed.data
 
   const [row] = await db.insert(accounts).values({
     label: `${broker} · ${accountNumber}`,
@@ -33,6 +34,7 @@ export async function POST(req: Request) {
     customerName: customerName || null,
     customerPhone: customerPhone || null,
     status: 'Active',
+    initialDeposit: initialDeposit ?? balance,
     equity: balance,
     balance,
     pnl: 0,

@@ -1,19 +1,43 @@
-import { eq } from 'drizzle-orm'
+import { eq, desc } from 'drizzle-orm'
 import { db } from '@/lib/db/client'
-import { notificationSettings, notificationRules, accounts } from '@/lib/db/schema'
+import { notificationSettings, notificationRules, accounts, robots, withdrawals } from '@/lib/db/schema'
 
 export type EventType = 'trade_closed' | 'manual_trade' | 'withdrawal' | 'robot_status'
 
-// Shared "who/what account" block included in every notification message,
-// per the requirement that messages show client name, account, and deposit.
+// Shared "who/what account" block included in every notification message:
+// client name, account number, deposit, current balance, robot on/off, and
+// whether there's an open withdrawal.
 export async function accountContext(accountId: string) {
   const [acc] = await db.select({
     label: accounts.label,
+    accountNumber: accounts.accountNumber,
     customerName: accounts.customerName,
+    initialDeposit: accounts.initialDeposit,
     balance: accounts.balance,
   }).from(accounts).where(eq(accounts.id, accountId)).limit(1)
   if (!acc) return ''
-  return `Klien: ${acc.customerName ?? '-'}\nAkun: ${acc.label}\nDeposit: $${acc.balance.toFixed(2)}`
+
+  const accountRobots = await db.select({ name: robots.name, status: robots.status }).from(robots).where(eq(robots.accountId, accountId))
+  const robotText = accountRobots.length
+    ? accountRobots.map(r => `${r.name}: ${r.status === 'Running' ? 'ON' : 'OFF'}`).join(', ')
+    : '-'
+
+  const [lastWithdrawal] = await db.select({ amount: withdrawals.amount, status: withdrawals.status })
+    .from(withdrawals).where(eq(withdrawals.accountId, accountId)).orderBy(desc(withdrawals.createdAt)).limit(1)
+  const withdrawalText = !lastWithdrawal
+    ? 'Tidak ada'
+    : lastWithdrawal.status === 'completed'
+      ? `Sudah selesai ($${lastWithdrawal.amount.toFixed(2)})`
+      : `Pending ($${lastWithdrawal.amount.toFixed(2)})`
+
+  return [
+    `Klien: ${acc.customerName ?? '-'}`,
+    `Akun: ${acc.label} (${acc.accountNumber})`,
+    `Deposito: $${acc.initialDeposit.toFixed(2)}`,
+    `Balance: $${acc.balance.toFixed(2)}`,
+    `Robot: ${robotText}`,
+    `Withdrawal: ${withdrawalText}`,
+  ].join('\n')
 }
 
 async function sendTo(gatewayUrl: string, gatewayApiKey: string, phone: string, message: string): Promise<{ ok: boolean; error?: string }> {
