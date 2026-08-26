@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import { rmSync } from 'fs'
+import { rm } from 'fs/promises'
 import express from 'express'
 import qrcodeTerminal from 'qrcode-terminal'
 import QRCode from 'qrcode'
@@ -22,6 +22,35 @@ const logger = pino({ level: 'warn' })
 let sock = null
 let isReady = false
 let latestQr = null
+
+// The auth_info folder lives on a mounted volume, which can briefly report
+// "resource busy" right after the socket that had it open closes — retry
+// instead of giving up, and never let a wipe failure block re-pairing.
+async function wipeAuthInfo() {
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      await rm('./auth_info', { recursive: true, force: true })
+      return
+    } catch (err) {
+      if (attempt === 5) {
+        console.error('Failed to wipe auth_info after retries, proceeding anyway:', err)
+        return
+      }
+      await new Promise((r) => setTimeout(r, 500))
+    }
+  }
+}
+
+async function resetSession() {
+  if (sock) {
+    try { sock.end(undefined) } catch { /* ignore */ }
+  }
+  isReady = false
+  latestQr = null
+  await wipeAuthInfo()
+  console.log('Session reset — auth_info cleared, starting a fresh pairing.')
+  startSock()
+}
 
 async function startSock() {
   const { state, saveCreds } = await useMultiFileAuthState('./auth_info')
@@ -88,8 +117,8 @@ async function startSock() {
       console.log('Connection closed (code', statusCode, '). Reconnecting:', shouldReconnect)
       if (shouldReconnect) startSock()
       else {
-        latestQr = null
-        console.log('Logged out from WhatsApp. Delete the auth_info folder and restart to pair again.')
+        console.log('Logged out from WhatsApp (e.g. removed from Linked Devices) — clearing session and starting a fresh pairing automatically.')
+        resetSession()
       }
     }
   })
@@ -129,14 +158,7 @@ app.post('/reset', async (req, res) => {
   if (key !== API_KEY) return res.status(401).json({ error: 'Invalid API key' })
 
   try {
-    if (sock) {
-      try { sock.end(undefined) } catch { /* ignore */ }
-    }
-    isReady = false
-    latestQr = null
-    rmSync('./auth_info', { recursive: true, force: true })
-    console.log('Session reset via /reset — auth_info cleared, pairing fresh.')
-    startSock()
+    await resetSession()
     res.json({ ok: true })
   } catch (err) {
     console.error('Reset failed:', err)
