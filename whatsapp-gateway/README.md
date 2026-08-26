@@ -17,7 +17,16 @@ are stateless and shut down between requests.
 4. `npm install`
 5. `npm start`
 6. A QR code will print in the terminal. Open WhatsApp on the phone number you want to send from → **Settings → Linked Devices → Link a Device** → scan it.
+   - If you're not on a real terminal (e.g. deploying to Railway/a PaaS and only have a web log viewer), the ASCII QR in the logs is often unscannable because the viewer breaks the character alignment. Instead open `https://YOUR_GATEWAY_URL/qr` in a browser — it renders the same QR as a real scannable image and auto-refreshes until you scan it.
 7. Once you see `WhatsApp connected.`, leave it running.
+
+## Deploying on Railway
+
+1. Create a service from this repo, with **Root Directory** set to `whatsapp-gateway`.
+2. Add one environment variable: `API_KEY` = a long random string (Railway sets `PORT` itself; the app already respects `process.env.PORT`).
+3. **Attach a Volume** and mount it at `/app/auth_info` (Settings → Volumes → New Volume). This is required — without it, Railway's filesystem is wiped on every redeploy/restart, so the paired WhatsApp session would be lost and you'd have to re-scan the QR every time.
+4. Deploy. Once the deploy is "Active", open `https://YOUR_RAILWAY_URL/qr` in a browser and scan it with WhatsApp (Settings → Linked Devices → Link a Device).
+5. Confirm it worked by visiting `https://YOUR_RAILWAY_URL/health` — it should return `{"connected":true}`.
 
 ## Keep it running permanently
 

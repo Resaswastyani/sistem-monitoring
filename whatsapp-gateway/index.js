@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import express from 'express'
-import qrcode from 'qrcode-terminal'
+import qrcodeTerminal from 'qrcode-terminal'
+import QRCode from 'qrcode'
 import pino from 'pino'
 import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys'
 
@@ -15,6 +16,7 @@ if (!API_KEY) {
 const logger = pino({ level: 'warn' })
 let sock = null
 let isReady = false
+let latestQr = null
 
 async function startSock() {
   const { state, saveCreds } = await useMultiFileAuthState('./auth_info')
@@ -33,12 +35,15 @@ async function startSock() {
     const { connection, lastDisconnect, qr } = update
 
     if (qr) {
+      latestQr = qr
       console.log('\nScan this QR code with WhatsApp (Settings > Linked Devices > Link a Device):\n')
-      qrcode.generate(qr, { small: true })
+      qrcodeTerminal.generate(qr, { small: true })
+      console.log(`\nOr open /qr on this server in a browser to scan it as an image.`)
     }
 
     if (connection === 'open') {
       isReady = true
+      latestQr = null
       console.log('WhatsApp connected.')
     }
 
@@ -48,7 +53,10 @@ async function startSock() {
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut
       console.log('Connection closed (code', statusCode, '). Reconnecting:', shouldReconnect)
       if (shouldReconnect) startSock()
-      else console.log('Logged out from WhatsApp. Delete the auth_info folder and restart to pair again.')
+      else {
+        latestQr = null
+        console.log('Logged out from WhatsApp. Delete the auth_info folder and restart to pair again.')
+      }
     }
   })
 }
@@ -78,5 +86,25 @@ app.post('/send', async (req, res) => {
 })
 
 app.get('/health', (_req, res) => res.json({ connected: isReady }))
+
+app.get('/qr', async (_req, res) => {
+  res.set('Cache-Control', 'no-store')
+
+  if (isReady) {
+    return res.send('<!doctype html><meta charset="utf-8"><title>WhatsApp Gateway</title><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>&#9989; WhatsApp is already connected.</h2><p>No QR code needed.</p></body>')
+  }
+
+  if (!latestQr) {
+    return res.send('<!doctype html><meta charset="utf-8"><title>WhatsApp Gateway</title><meta http-equiv="refresh" content="3"><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>Waiting for QR code&hellip;</h2><p>This page refreshes automatically every 3 seconds.</p></body>')
+  }
+
+  try {
+    const dataUrl = await QRCode.toDataURL(latestQr, { width: 320, margin: 2 })
+    res.send(`<!doctype html><meta charset="utf-8"><title>Scan to connect WhatsApp</title><meta http-equiv="refresh" content="20"><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>Scan with WhatsApp</h2><p>Settings &rsaquo; Linked Devices &rsaquo; Link a Device</p><img src="${dataUrl}" alt="WhatsApp QR code" style="width:320px;height:320px" /><p style="color:#666;font-size:13px">This page refreshes every 20s. The code expires and is replaced automatically until you scan it.</p></body>`)
+  } catch (err) {
+    console.error('Failed to render QR image:', err)
+    res.status(500).send('Failed to render QR code')
+  }
+})
 
 app.listen(PORT, () => console.log(`WhatsApp gateway listening on port ${PORT}`))
