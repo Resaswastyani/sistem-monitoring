@@ -22,6 +22,7 @@ async function sendTo(gatewayUrl: string, gatewayApiKey: string, phone: string, 
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': gatewayApiKey },
       body: JSON.stringify({ phone, message }),
+      signal: AbortSignal.timeout(15000),
     })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))

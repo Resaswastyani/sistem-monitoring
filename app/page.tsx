@@ -294,7 +294,8 @@ export default function Home() {
   const submitManualSend = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setManualSendResult(null)
-    const form = new FormData(e.currentTarget)
+    const formEl = e.currentTarget
+    const form = new FormData(formEl)
     const target = String(form.get('target') || '')
     const message = String(form.get('message') || '')
     if (target === 'owner' && !notifSettings?.ownerPhone) {
@@ -306,7 +307,7 @@ export default function Home() {
     try {
       await api('/api/notify/send', { method: 'POST', body: JSON.stringify(body) })
       setManualSendResult({ ok: true })
-      e.currentTarget.reset()
+      formEl.reset()
     } catch (err) {
       setManualSendResult({ ok: false, error: err instanceof Error ? err.message : 'Gagal mengirim' })
     } finally {
