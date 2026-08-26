@@ -72,6 +72,7 @@ export default function Home() {
   const [notifRules, setNotifRules] = useState<NotificationRule[]>([])
   const [gatewayStatus, setGatewayStatus] = useState<'idle' | 'checking' | 'connected' | 'disconnected'>('idle')
   const [gatewayStatusError, setGatewayStatusError] = useState('')
+  const [showQr, setShowQr] = useState(false)
   const [manualSendResult, setManualSendResult] = useState<{ ok: boolean; error?: string } | null>(null)
   const [manualSending, setManualSending] = useState(false)
 
@@ -275,12 +276,6 @@ export default function Home() {
     }
   }
 
-  const messageTemplates: Record<EventType, string> = {
-    trade_closed: '✅ Update trade\n[Symbol] [BUY/SELL] [lot] lot\nP/L: [isi P/L]',
-    manual_trade: '⚠️ Konfirmasi: apakah Anda baru saja melakukan trading manual di akun ini?',
-    withdrawal: '🏧 Update withdrawal\nJumlah: [isi jumlah]\nStatus: [isi status]',
-    robot_status: '🤖 Update status robot\nRobot: [isi nama robot]\nStatus: [Online/Offline]',
-  }
   const applyMessageTemplate = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const type = e.target.value as EventType | 'manual'
     const form = e.target.form
@@ -288,15 +283,22 @@ export default function Home() {
     if (!textarea || type === 'manual') return
     const targetVal = (form?.elements.namedItem('target') as HTMLSelectElement | null)?.value
     const acc = accounts.find(a => a.id === targetVal)
-    let ctx = ''
-    if (acc) {
-      const accRobots = robots.filter(r => r.accountId === acc.id)
-      const robotText = accRobots.length ? accRobots.map(r => `${r.name}: ${r.status === 'Running' ? 'ON' : 'OFF'}`).join(', ') : '-'
-      const lastWithdrawal = withdrawals.filter(w => w.accountId === acc.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
-      const withdrawalText = !lastWithdrawal ? 'Tidak ada' : lastWithdrawal.status === 'completed' ? `Sudah selesai (${money(lastWithdrawal.amount)})` : `Pending (${money(lastWithdrawal.amount)})`
-      ctx = `\n\nKlien: ${acc.customerName ?? '-'}\nAkun: ${acc.label} (${acc.accountNumber})\nDeposito: ${money(acc.initialDeposit)}\nBalance: ${money(acc.balance)}\nRobot: ${robotText}\nWithdrawal: ${withdrawalText}`
+    const accRobots = acc ? robots.filter(r => r.accountId === acc.id) : []
+    const robotText = accRobots.length ? accRobots.map(r => `${r.name}: ${r.status === 'Running' ? 'ON' : 'OFF'}`).join(', ') : '-'
+    const lastWithdrawal = acc ? withdrawals.filter(w => w.accountId === acc.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] : undefined
+    const withdrawalText = !lastWithdrawal ? 'Tidak ada' : lastWithdrawal.status === 'completed' ? `Sudah selesai (${money(lastWithdrawal.amount)})` : `Pending (${money(lastWithdrawal.amount)})`
+
+    const bodies: Record<EventType, string> = {
+      trade_closed: '✅ Update trade\n[Symbol] [BUY/SELL] [lot] lot\nP/L: [isi P/L]',
+      manual_trade: '⚠️ Konfirmasi: apakah Anda baru saja melakukan trading manual di akun ini?',
+      withdrawal: acc ? `🏧 Update withdrawal\n${withdrawalText}` : '🏧 Update withdrawal\nJumlah: [isi jumlah]\nStatus: [isi status]',
+      robot_status: acc ? `🤖 Update status robot\n${robotText}` : '🤖 Update status robot\nRobot: [isi nama robot]\nStatus: [Online/Offline]',
     }
-    textarea.value = messageTemplates[type] + ctx
+
+    const ctx = acc
+      ? `\n\nKlien: ${acc.customerName ?? '-'}\nAkun: ${acc.label} (${acc.accountNumber})\nDeposito: ${money(acc.initialDeposit)}\nBalance: ${money(acc.balance)}\nRobot: ${robotText}\nWithdrawal: ${withdrawalText}`
+      : ''
+    textarea.value = bodies[type] + ctx
   }
 
   const submitManualSend = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -375,7 +377,7 @@ export default function Home() {
   const isAdmin = currentUser?.role === 'owner' || currentUser?.role === 'admin'
 
   const whatsappPage = <>
-    <section className="panel"><div className="panel-head"><div><h2>WhatsApp gateway</h2><p>Baileys self-hosted — URL &amp; API key dari gateway yang Anda jalankan sendiri.</p></div><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>{gatewayStatus !== 'idle' && <span className={`gateway-status ${gatewayStatus}`}>{gatewayStatus === 'checking' ? 'Checking…' : gatewayStatus === 'connected' ? <><Wifi />Connected</> : <><WifiOff />{gatewayStatusError || 'Disconnected'}</>}</span>}<button type="button" className="outline-button" onClick={testGatewayConnection} disabled={gatewayStatus === 'checking'}><Wifi />{gatewayStatus === 'checking' ? 'Testing…' : 'Test connection'}</button></div></div><form key={notifSettings ? 'loaded' : 'loading'} className="vps-form" onSubmit={submitNotificationForm}><div className="vps-form-grid"><label>Gateway URL<input name="gatewayUrl" defaultValue={notifSettings?.gatewayUrl ?? ''} placeholder="https://your-gateway.example.com" /></label><label>Gateway API key<input name="gatewayApiKey" defaultValue={notifSettings?.gatewayApiKey ?? ''} placeholder="secret key" /></label><label>Nomor WA owner<input name="ownerPhone" defaultValue={notifSettings?.ownerPhone ?? ''} placeholder="6281234567890" /></label></div><div className="vps-form-actions"><button type="submit" className="primary-button"><Check />Save gateway settings</button></div></form></section>
+    <section className="panel"><div className="panel-head"><div><h2>WhatsApp gateway</h2><p>Baileys self-hosted — URL &amp; API key dari gateway yang Anda jalankan sendiri.</p></div><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>{gatewayStatus !== 'idle' && <span className={`gateway-status ${gatewayStatus}`}>{gatewayStatus === 'checking' ? 'Checking…' : gatewayStatus === 'connected' ? <><Wifi />Connected</> : <><WifiOff />{gatewayStatusError || 'Disconnected'}</>}</span>}<button type="button" className="outline-button" onClick={testGatewayConnection} disabled={gatewayStatus === 'checking'}><Wifi />{gatewayStatus === 'checking' ? 'Testing…' : 'Test connection'}</button>{notifSettings?.gatewayUrl && <button type="button" className="outline-button" onClick={() => setShowQr(v => !v)}>{showQr ? 'Sembunyikan QR' : 'Scan QR'}</button>}</div></div>{showQr && notifSettings?.gatewayUrl && <iframe src={`${notifSettings.gatewayUrl.replace(/\/$/, '')}/qr`} title="WhatsApp QR code" style={{ width: '100%', height: 420, border: '1px solid var(--border)', borderRadius: 11, background: '#fff', marginBottom: 16 }} />}<form key={notifSettings ? 'loaded' : 'loading'} className="vps-form" onSubmit={submitNotificationForm}><div className="vps-form-grid"><label>Gateway URL<input name="gatewayUrl" defaultValue={notifSettings?.gatewayUrl ?? ''} placeholder="https://your-gateway.example.com" /></label><label>Gateway API key<input name="gatewayApiKey" defaultValue={notifSettings?.gatewayApiKey ?? ''} placeholder="secret key" /></label><label>Nomor WA owner<input name="ownerPhone" defaultValue={notifSettings?.ownerPhone ?? ''} placeholder="6281234567890" /></label></div><div className="vps-form-actions"><button type="submit" className="primary-button"><Check />Save gateway settings</button></div></form></section>
 
     <section className="panel" style={{ marginTop: 16 }}><div className="panel-head"><div><h2>Notification rules</h2><p>Pilih siapa yang menerima WA untuk tiap jenis kejadian.</p></div></div><div style={{ marginTop: 16 }}>{notifRules.map(r => <div className="notify-rule-card" key={r.eventType}><div className="notify-rule-row"><div className="rule-name"><b>{eventTypeLabels[r.eventType]}</b></div><label className="toggle-col rule-active"><span className="toggle"><input type="checkbox" checked={r.active} onChange={e => updateNotifRule(r.eventType, { active: e.target.checked })} /><span className="slider" /></span><span>Aktif</span></label><label className="toggle-col"><span className="toggle"><input type="checkbox" checked={r.notifyOwner} onChange={e => updateNotifRule(r.eventType, { notifyOwner: e.target.checked })} /><span className="slider" /></span><span>Notify owner</span></label><label className="toggle-col"><span className="toggle"><input type="checkbox" checked={r.notifyClient} onChange={e => updateNotifRule(r.eventType, { notifyClient: e.target.checked })} /><span className="slider" /></span><span>Notify client</span></label></div></div>)}</div></section>
 
