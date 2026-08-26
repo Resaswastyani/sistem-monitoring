@@ -7,10 +7,14 @@ import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaile
 
 const PORT = process.env.PORT || 3001
 const API_KEY = process.env.API_KEY || ''
+const DASHBOARD_URL = (process.env.DASHBOARD_URL || '').replace(/\/$/, '')
 
 if (!API_KEY) {
   console.error('Set API_KEY in .env before starting — it protects the /send endpoint from being used by anyone who finds the URL.')
   process.exit(1)
+}
+if (!DASHBOARD_URL) {
+  console.warn('DASHBOARD_URL not set — incoming messages will not get an automatic reply.')
 }
 
 const logger = pino({ level: 'warn' })
@@ -30,6 +34,35 @@ async function startSock() {
   })
 
   sock.ev.on('creds.update', saveCreds)
+
+  // Auto-reply to incoming customer messages with account info looked up
+  // by phone number. type:'notify' filters out the historical-sync batch
+  // Baileys replays on every (re)connect, so old messages never get a reply.
+  sock.ev.on('messages.upsert', async ({ messages, type }) => {
+    if (type !== 'notify' || !DASHBOARD_URL) return
+    for (const m of messages) {
+      try {
+        if (m.key.fromMe) continue
+        const jid = m.key.remoteJid
+        if (!jid || jid.endsWith('@g.us') || jid === 'status@broadcast') continue
+        const text = m.message?.conversation || m.message?.extendedTextMessage?.text || m.message?.imageMessage?.caption || ''
+        if (!text.trim()) continue
+
+        const phone = jid.replace(/@.*/, '')
+        const res = await fetch(`${DASHBOARD_URL}/api/bot/query`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Api-Key': API_KEY },
+          body: JSON.stringify({ phone, message: text }),
+          signal: AbortSignal.timeout(10000),
+        })
+        if (!res.ok) continue
+        const { reply } = await res.json()
+        if (reply) await sock.sendMessage(jid, { text: reply })
+      } catch (err) {
+        console.error('Auto-reply failed for an incoming message:', err)
+      }
+    }
+  })
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update

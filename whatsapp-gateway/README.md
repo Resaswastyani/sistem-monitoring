@@ -14,6 +14,7 @@ are stateless and shut down between requests.
 3. `cp .env.example .env`, then edit `.env`:
    - `API_KEY` — make up a long random string. You'll paste this same value into the dashboard's Settings page later.
    - `PORT` — leave as 3001 unless it conflicts with something else.
+   - `DASHBOARD_URL` — your deployed dashboard's URL (e.g. `https://your-app.vercel.app`). Enables auto-reply to incoming customer messages (see below). Leave blank to skip that feature.
 4. `npm install`
 5. `npm start`
 6. A QR code will print in the terminal. Open WhatsApp on the phone number you want to send from → **Settings → Linked Devices → Link a Device** → scan it.
@@ -52,6 +53,24 @@ Once reachable, go to the dashboard's **Settings** page and fill in:
 - **Gateway URL**: `http://YOUR_VPS_IP:3001` (or your HTTPS domain)
 - **Gateway API key**: the same `API_KEY` from `.env`
 - **Nomor WA owner**: your own WhatsApp number, to receive owner-side notifications
+
+## Auto-reply to customer messages
+
+When `DASHBOARD_URL` is set, any incoming WhatsApp message from a number that
+matches an account's "Customer WhatsApp" field gets an automatic reply with
+live account info, looked up from the dashboard by keyword:
+
+- `saldo` / `balance` — current balance & equity
+- `robot` / `status` — each robot's on/off status
+- `withdraw` / `wd` / `tarik` — latest withdrawal status
+- `deposit` / `modal` — total deposited
+- anything else — a short account summary + the list of keywords above
+
+Messages from an unrecognized number get a generic "not registered" reply.
+Messages from the owner's own number (set in the dashboard's Settings) never
+get an auto-reply, so the owner can use that number normally. The dashboard
+does the actual lookup (`/api/bot/query`), authenticated with the same
+`API_KEY` — nothing extra to configure beyond `DASHBOARD_URL`.
 
 ## Testing it directly
 

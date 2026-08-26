@@ -4,8 +4,9 @@ import { SESSION_COOKIE } from '@/lib/auth/session'
 
 export async function middleware(req: NextRequest) {
   // /api/auth: unauthenticated login flow. /api/agent: EAs authenticate with
-  // their own X-Api-Key header instead of a browser session cookie.
-  if (req.nextUrl.pathname.startsWith('/api/auth') || req.nextUrl.pathname.startsWith('/api/agent')) return NextResponse.next()
+  // their own X-Api-Key header instead of a browser session cookie. /api/bot:
+  // the WhatsApp gateway calling in for an auto-reply, same X-Api-Key model.
+  if (req.nextUrl.pathname.startsWith('/api/auth') || req.nextUrl.pathname.startsWith('/api/agent') || req.nextUrl.pathname.startsWith('/api/bot')) return NextResponse.next()
   const token = req.cookies.get(SESSION_COOKIE)?.value
   if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
