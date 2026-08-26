@@ -16,15 +16,42 @@ export async function accountContext(accountId: string) {
   return `Klien: ${acc.customerName ?? '-'}\nAkun: ${acc.label}\nDeposit: $${acc.balance.toFixed(2)}`
 }
 
-async function sendTo(gatewayUrl: string, gatewayApiKey: string, phone: string, message: string) {
+async function sendTo(gatewayUrl: string, gatewayApiKey: string, phone: string, message: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    await fetch(`${gatewayUrl.replace(/\/$/, '')}/send`, {
+    const res = await fetch(`${gatewayUrl.replace(/\/$/, '')}/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': gatewayApiKey },
       body: JSON.stringify({ phone, message }),
     })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      return { ok: false, error: body.error || `Gateway returned ${res.status}` }
+    }
+    return { ok: true }
   } catch (err) {
     console.error('WhatsApp gateway send failed', err)
+    return { ok: false, error: 'Tidak bisa menghubungi gateway' }
+  }
+}
+
+// Ad-hoc send for the "manual message" panel — unlike notifyEvent, this
+// surfaces real success/failure back to the caller instead of failing silently.
+export async function sendDirect(phone: string, message: string): Promise<{ ok: boolean; error?: string }> {
+  const [settings] = await db.select().from(notificationSettings).limit(1)
+  if (!settings?.gatewayUrl || !settings?.gatewayApiKey) return { ok: false, error: 'Gateway belum dikonfigurasi' }
+  return sendTo(settings.gatewayUrl, settings.gatewayApiKey, phone, message)
+}
+
+export async function checkGatewayHealth(): Promise<{ ok: boolean; connected?: boolean; error?: string }> {
+  const [settings] = await db.select().from(notificationSettings).limit(1)
+  if (!settings?.gatewayUrl) return { ok: false, error: 'Gateway URL belum diisi' }
+  try {
+    const res = await fetch(`${settings.gatewayUrl.replace(/\/$/, '')}/health`, { signal: AbortSignal.timeout(8000) })
+    if (!res.ok) return { ok: false, error: `Gateway returned ${res.status}` }
+    const body = await res.json().catch(() => ({}))
+    return { ok: true, connected: !!body.connected }
+  } catch {
+    return { ok: false, error: 'Tidak bisa menghubungi gateway' }
   }
 }
 

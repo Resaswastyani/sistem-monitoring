@@ -146,3 +146,30 @@ button { cursor:pointer; }
 .mini-account-card .progress { margin-top:10px; }
 
 @media (max-width: 700px) { .daily-bar-col { max-width:none; } }
+
+/* WhatsApp notifications page */
+.toggle { position:relative; display:inline-block; width:36px; height:20px; flex:none; }
+.toggle input { position:absolute; inset:0; opacity:0; margin:0; cursor:pointer; z-index:1; }
+.toggle .slider { position:absolute; inset:0; background:var(--muted); border:1px solid var(--border); border-radius:999px; transition:background .15s, border-color .15s; }
+.toggle .slider:before { content:''; position:absolute; width:14px; height:14px; left:2px; top:2px; background:#fff; border-radius:50%; transition:transform .15s; }
+.toggle input:checked + .slider { background:var(--primary); border-color:var(--primary); }
+.toggle input:checked + .slider:before { transform:translateX(16px); }
+
+.notify-rule-card { border:1px solid var(--border); border-radius:11px; padding:16px 18px; background:var(--panel2); }
+.notify-rule-card + .notify-rule-card { margin-top:12px; }
+.notify-rule-row { display:flex; align-items:center; flex-wrap:wrap; gap:12px 24px; }
+.notify-rule-row .rule-name { flex:1 1 200px; min-width:0; font-size:13px; }
+.notify-rule-row .toggle-col { display:flex; align-items:center; gap:9px; }
+.notify-rule-row .toggle-col span { font-size:11px; color:var(--dim); }
+.notify-rule-row .toggle-col.rule-active span { color:var(--text); font-weight:600; }
+
+.gateway-status { display:inline-flex; align-items:center; gap:6px; font-size:11px; padding:5px 10px; border-radius:999px; border:1px solid var(--border); white-space:nowrap; }
+.gateway-status svg { width:13px; }
+.gateway-status.connected { color:var(--primary); border-color:color-mix(in srgb, var(--primary) 40%, transparent); background:color-mix(in srgb, var(--primary) 10%, transparent); }
+.gateway-status.disconnected { color:var(--danger); border-color:color-mix(in srgb, var(--danger) 40%, transparent); background:color-mix(in srgb, var(--danger) 10%, transparent); }
+
+.manual-send-result { font-size:11px; padding:9px 12px; border-radius:8px; margin-top:12px; }
+.manual-send-result.ok { color:var(--primary); background:color-mix(in srgb, var(--primary) 12%, transparent); border:1px solid color-mix(in srgb, var(--primary) 30%, transparent); }
+.manual-send-result.error { color:var(--danger); background:color-mix(in srgb, var(--danger) 12%, transparent); border:1px solid color-mix(in srgb, var(--danger) 30%, transparent); }
+
+.wa-textarea { width:100%; min-height:96px; border:1px solid var(--border); border-radius:8px; padding:10px 12px; background:var(--panel2); color:var(--text); font:inherit; resize:vertical; }
