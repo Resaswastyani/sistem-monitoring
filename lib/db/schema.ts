@@ -83,6 +83,17 @@ export const withdrawals = pgTable('withdrawals', {
   completedAt: timestamp('completed_at'),
 })
 
+// One row per real deposit transaction detected on the Exness account
+// (via the EA's deal-history scan). externalRef is the MT5 deal ticket,
+// used to dedupe since the EA rescans full history on every report.
+export const deposits = pgTable('deposits', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  amount: doublePrecision('amount').notNull(),
+  externalRef: text('external_ref').notNull().unique(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+})
+
 export const profitShareRules = pgTable('profit_share_rules', {
   id: uuid('id').primaryKey().defaultRandom(),
   recipientName: text('recipient_name').notNull(),

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { eq, and, ne, lt, isNotNull, sql } from 'drizzle-orm'
 import { db } from '@/lib/db/client'
-import { robots, accounts, trades, withdrawals } from '@/lib/db/schema'
+import { robots, accounts, trades, withdrawals, deposits } from '@/lib/db/schema'
 import { notifyEvent, accountContext } from '@/lib/notify/whatsapp'
 import { computeProfitShareLedger } from '@/lib/withdrawals/profit-share'
 
@@ -163,6 +163,18 @@ export async function POST(req: Request) {
     }
     msg += `\n${await accountContext(robot.accountId)}`
     await notifyEvent('withdrawal', msg, { accountId: robot.accountId })
+  }
+
+  // Deposits made directly on the Exness account — accumulate into
+  // accounts.initialDeposit so "Deposito" in WhatsApp messages reflects
+  // real money in, not a manually-typed number. Deduped by deal ticket
+  // since the EA rescans full deal history on every report.
+  for (const b of (balancePayload ?? []).filter((e) => e.type === 'deposit')) {
+    const [existing] = await db.select({ id: deposits.id }).from(deposits).where(eq(deposits.externalRef, b.ticket)).limit(1)
+    if (existing) continue
+
+    await db.insert(deposits).values({ accountId: robot.accountId, amount: b.amount, externalRef: b.ticket })
+    await db.update(accounts).set({ initialDeposit: sql`${accounts.initialDeposit} + ${b.amount}` }).where(eq(accounts.id, robot.accountId))
   }
 
   // Piggyback offline detection on incoming reports rather than a cron job:
