@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import { rmSync } from 'fs'
 import express from 'express'
 import qrcodeTerminal from 'qrcode-terminal'
 import QRCode from 'qrcode'
@@ -119,6 +120,29 @@ app.post('/send', async (req, res) => {
 })
 
 app.get('/health', (_req, res) => res.json({ connected: isReady }))
+
+// Wipes the saved session and forces a fresh QR pairing. Useful when the
+// session gets into a bad state (e.g. repeated "Bad MAC" decrypt errors
+// after being reconnected many times) — cheaper than deleting the volume.
+app.post('/reset', async (req, res) => {
+  const key = req.header('X-Api-Key')
+  if (key !== API_KEY) return res.status(401).json({ error: 'Invalid API key' })
+
+  try {
+    if (sock) {
+      try { sock.end(undefined) } catch { /* ignore */ }
+    }
+    isReady = false
+    latestQr = null
+    rmSync('./auth_info', { recursive: true, force: true })
+    console.log('Session reset via /reset — auth_info cleared, pairing fresh.')
+    startSock()
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Reset failed:', err)
+    res.status(500).json({ error: 'Reset failed' })
+  }
+})
 
 app.get('/qr', async (_req, res) => {
   res.set('Cache-Control', 'no-store')
