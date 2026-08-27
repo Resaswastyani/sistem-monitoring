@@ -1,5 +1,6 @@
 import 'dotenv/config'
-import { rm } from 'fs/promises'
+import { rm, readdir } from 'fs/promises'
+import { join } from 'path'
 import express from 'express'
 import qrcodeTerminal from 'qrcode-terminal'
 import QRCode from 'qrcode'
@@ -23,20 +24,22 @@ let sock = null
 let isReady = false
 let latestQr = null
 
-// The auth_info folder lives on a mounted volume, which can briefly report
-// "resource busy" right after the socket that had it open closes — retry
-// instead of giving up, and never let a wipe failure block re-pairing.
+// ./auth_info is the mounted volume's mount point, so recursively rm-ing
+// the directory itself always throws EBUSY (you can't rmdir a mount
+// point) — clear its contents one entry at a time instead, and leave the
+// directory itself alone.
 async function wipeAuthInfo() {
-  for (let attempt = 1; attempt <= 5; attempt++) {
+  let entries
+  try {
+    entries = await readdir('./auth_info')
+  } catch {
+    return
+  }
+  for (const entry of entries) {
     try {
-      await rm('./auth_info', { recursive: true, force: true })
-      return
+      await rm(join('./auth_info', entry), { recursive: true, force: true })
     } catch (err) {
-      if (attempt === 5) {
-        console.error('Failed to wipe auth_info after retries, proceeding anyway:', err)
-        return
-      }
-      await new Promise((r) => setTimeout(r, 500))
+      console.error(`Failed to remove ./auth_info/${entry}:`, err.message)
     }
   }
 }
@@ -47,6 +50,9 @@ async function resetSession() {
   }
   isReady = false
   latestQr = null
+  // Give the just-closed socket a moment to release its file handles
+  // before touching the same files, or the wipe below can no-op.
+  await new Promise((r) => setTimeout(r, 500))
   await wipeAuthInfo()
   console.log('Session reset — auth_info cleared, starting a fresh pairing.')
   startSock()
@@ -117,8 +123,7 @@ async function startSock() {
       console.log('Connection closed (code', statusCode, '). Reconnecting:', shouldReconnect)
       if (shouldReconnect) startSock()
       else {
-        console.log('Logged out from WhatsApp (e.g. removed from Linked Devices) — clearing session and starting a fresh pairing automatically.')
-        resetSession()
+        console.log('Logged out from WhatsApp (e.g. removed from Linked Devices). Not auto-reconnecting — call POST /reset when ready to pair again.')
       }
     }
   })
