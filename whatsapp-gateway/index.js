@@ -19,10 +19,65 @@ if (!DASHBOARD_URL) {
   console.warn('DASHBOARD_URL not set — incoming messages will not get an automatic reply.')
 }
 
-const logger = pino({ level: 'warn' })
+// Sending too many messages too fast (or in a burst right after repeated
+// reconnects) is what got this number rate-limited by WhatsApp today —
+// error 463 on the delivery ack means "flagged as spam". Track those acks
+// and, once a few land in a short window, pause all sending for a cooldown
+// instead of continuing to hammer an already-flagged number.
+const SPAM_ERROR_WINDOW_MS = 60 * 1000
+const SPAM_ERROR_THRESHOLD = 3
+const SPAM_COOLDOWN_MS = 10 * 60 * 1000
+let recentSpamAcks = []
+
+function recordSpamAck() {
+  const now = Date.now()
+  recentSpamAcks = recentSpamAcks.filter((t) => now - t < SPAM_ERROR_WINDOW_MS)
+  recentSpamAcks.push(now)
+  if (recentSpamAcks.length >= SPAM_ERROR_THRESHOLD) {
+    console.warn(`[send] ${recentSpamAcks.length} spam-flagged delivery acks (error 463) in the last minute — pausing all sends for ${SPAM_COOLDOWN_MS / 60000} minutes.`)
+  }
+}
+
+function sendingPausedForSpam() {
+  if (recentSpamAcks.length < SPAM_ERROR_THRESHOLD) return false
+  const last = recentSpamAcks[recentSpamAcks.length - 1]
+  return Date.now() - last < SPAM_COOLDOWN_MS
+}
+
+const logger = pino({
+  level: 'warn',
+  hooks: {
+    logMethod(inputArgs, method) {
+      try {
+        const arg = inputArgs[0]
+        if (arg && typeof arg === 'object' && arg.attrs && arg.attrs.error === '463') recordSpamAck()
+      } catch { /* best-effort detection only */ }
+      return method.apply(this, inputArgs)
+    },
+  },
+})
 let sock = null
 let isReady = false
 let latestQr = null
+
+// Every outbound message goes through this single chain so sends are
+// spaced out instead of firing in a burst, and pause entirely once
+// WhatsApp starts flagging deliveries as spam (see recordSpamAck above).
+const MIN_SEND_INTERVAL_MS = 2000
+let sendChain = Promise.resolve()
+
+function queuedSend(jid, text) {
+  const result = sendChain.then(async () => {
+    if (sendingPausedForSpam()) {
+      throw new Error(`Sending paused for ~${Math.ceil(SPAM_COOLDOWN_MS / 60000)} min — WhatsApp flagged recent messages as spam.`)
+    }
+    await sock.sendMessage(jid, { text })
+  })
+  // Keep the chain alive (spaced out) even if this particular send rejects,
+  // so one failure doesn't wedge every send queued after it.
+  sendChain = result.catch(() => {}).then(() => new Promise((r) => setTimeout(r, MIN_SEND_INTERVAL_MS)))
+  return result
+}
 
 // ./auth_info is the mounted volume's mount point, so recursively rm-ing
 // the directory itself always throws EBUSY (you can't rmdir a mount
@@ -96,7 +151,7 @@ async function startSock() {
         if (!res.ok) { console.log('[bot] dashboard query failed, status=', res.status, await res.text().catch(() => '')); continue }
         const { reply } = await res.json()
         console.log('[bot] reply from dashboard:', reply)
-        if (reply) await sock.sendMessage(jid, { text: reply })
+        if (reply) await queuedSend(jid, reply)
       } catch (err) {
         console.error('Auto-reply failed for an incoming message:', err)
       }
@@ -148,15 +203,15 @@ app.post('/send', async (req, res) => {
   try {
     const digits = String(phone).replace(/[^0-9]/g, '')
     const jid = `${digits}@s.whatsapp.net`
-    await sock.sendMessage(jid, { text: String(message) })
+    await queuedSend(jid, String(message))
     res.json({ ok: true })
   } catch (err) {
     console.error('Send failed:', err)
-    res.status(500).json({ error: 'Failed to send message' })
+    res.status(err.message?.startsWith('Sending paused') ? 429 : 500).json({ error: err.message || 'Failed to send message' })
   }
 })
 
-app.get('/health', (_req, res) => res.json({ connected: isReady }))
+app.get('/health', (_req, res) => res.json({ connected: isReady, sendingPausedForSpam: sendingPausedForSpam() }))
 
 // Wipes the saved session and forces a fresh QR pairing. Useful when the
 // session gets into a bad state (e.g. repeated "Bad MAC" decrypt errors
