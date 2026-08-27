@@ -75,24 +75,27 @@ async function startSock() {
   // by phone number. type:'notify' filters out the historical-sync batch
   // Baileys replays on every (re)connect, so old messages never get a reply.
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
+    console.log(`[bot] messages.upsert type=${type} count=${messages.length}`)
     if (type !== 'notify' || !DASHBOARD_URL) return
     for (const m of messages) {
       try {
-        if (m.key.fromMe) continue
+        if (m.key.fromMe) { console.log('[bot] skip: fromMe'); continue }
         const jid = m.key.remoteJid
-        if (!jid || jid.endsWith('@g.us') || jid === 'status@broadcast') continue
+        if (!jid || jid.endsWith('@g.us') || jid === 'status@broadcast') { console.log('[bot] skip: not a 1:1 chat, jid=', jid); continue }
         const text = m.message?.conversation || m.message?.extendedTextMessage?.text || m.message?.imageMessage?.caption || ''
-        if (!text.trim()) continue
+        if (!text.trim()) { console.log('[bot] skip: no text, message keys=', Object.keys(m.message || {})); continue }
 
         const phone = jid.replace(/@.*/, '')
+        console.log(`[bot] incoming "${text}" from ${phone}, querying dashboard...`)
         const res = await fetch(`${DASHBOARD_URL}/api/bot/query`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Api-Key': API_KEY },
           body: JSON.stringify({ phone, message: text }),
           signal: AbortSignal.timeout(10000),
         })
-        if (!res.ok) continue
+        if (!res.ok) { console.log('[bot] dashboard query failed, status=', res.status, await res.text().catch(() => '')); continue }
         const { reply } = await res.json()
+        console.log('[bot] reply from dashboard:', reply)
         if (reply) await sock.sendMessage(jid, { text: reply })
       } catch (err) {
         console.error('Auto-reply failed for an incoming message:', err)
