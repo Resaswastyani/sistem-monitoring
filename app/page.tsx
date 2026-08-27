@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, BarChart3, Bell, Bot, Check, ChevronDown, CircleHelp, Copy, CreditCard, Download, Edit3, LayoutDashboard, LineChart, Menu, MessageCircle, MoreHorizontal, Moon, Pause, Pencil, Play, Plus, Search, Send, Server, Settings, ShieldCheck, Sun, Trash2, TrendingUp, Users, Wallet, Wifi, WifiOff, X, Zap } from 'lucide-react'
+import { Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, BarChart3, Bell, Bot, Check, ChevronDown, CircleHelp, Copy, CreditCard, Download, Edit3, LayoutDashboard, LineChart, Menu, MessageCircle, MoreHorizontal, Moon, Pause, Pencil, Play, Plus, RefreshCw, Search, Send, Server, Settings, ShieldCheck, Sun, Trash2, TrendingUp, Users, Wallet, Wifi, WifiOff, X, Zap } from 'lucide-react'
 
 type Account = { id: string; label: string; broker: string; accountNumber: string; customerName: string | null; customerPhone: string | null; status: 'Active' | 'Paused'; initialDeposit: number; equity: number; balance: number; pnl: number; trades: number; winRate: number; margin: number; vpsId: string | null }
 type AppUser = { id: string; name: string; email: string; role: 'owner' | 'admin' | 'viewer'; active?: boolean; createdAt?: string }
@@ -72,6 +72,7 @@ export default function Home() {
   const [notifRules, setNotifRules] = useState<NotificationRule[]>([])
   const [gatewayStatus, setGatewayStatus] = useState<'idle' | 'checking' | 'connected' | 'disconnected'>('idle')
   const [gatewayStatusError, setGatewayStatusError] = useState('')
+  const [gatewayResetting, setGatewayResetting] = useState(false)
   const [showQr, setShowQr] = useState(false)
   const [manualSendResult, setManualSendResult] = useState<{ ok: boolean; error?: string } | null>(null)
   const [manualSending, setManualSending] = useState(false)
@@ -276,6 +277,20 @@ export default function Home() {
     }
   }
 
+  const resetGatewaySession = async () => {
+    if (!confirm('Ini akan memutus sesi WhatsApp yang sedang aktif dan meminta scan QR baru. Lanjutkan?')) return
+    setGatewayResetting(true)
+    try {
+      const result = await api<{ ok: boolean; error?: string }>('/api/notify/reset', { method: 'POST' })
+      if (result.ok) { action('Sesi WhatsApp direset — scan QR baru untuk sambungkan lagi'); setShowQr(true) }
+      else action(`Reset gagal: ${result.error || 'unknown error'}`)
+    } catch (err) {
+      action(`Reset gagal: ${err instanceof Error ? err.message : 'unknown error'}`)
+    } finally {
+      setGatewayResetting(false)
+    }
+  }
+
   const applyMessageTemplate = (e: React.ChangeEvent<HTMLSelectElement>) => fillMessageTemplate(e.target.form)
   const fillMessageTemplate = (form: HTMLFormElement | null | undefined) => {
     const type = ((form?.elements.namedItem('type') as HTMLSelectElement | null)?.value ?? 'manual') as EventType | 'manual'
@@ -377,7 +392,7 @@ export default function Home() {
   const isAdmin = currentUser?.role === 'owner' || currentUser?.role === 'admin'
 
   const whatsappPage = <>
-    <section className="panel"><div className="panel-head"><div><h2>WhatsApp gateway</h2><p>Baileys self-hosted — URL &amp; API key dari gateway yang Anda jalankan sendiri.</p></div><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>{gatewayStatus !== 'idle' && <span className={`gateway-status ${gatewayStatus}`}>{gatewayStatus === 'checking' ? 'Checking…' : gatewayStatus === 'connected' ? <><Wifi />Connected</> : <><WifiOff />{gatewayStatusError || 'Disconnected'}</>}</span>}<button type="button" className="outline-button" onClick={testGatewayConnection} disabled={gatewayStatus === 'checking'}><Wifi />{gatewayStatus === 'checking' ? 'Testing…' : 'Test connection'}</button>{notifSettings?.gatewayUrl && <button type="button" className="outline-button" onClick={() => setShowQr(v => !v)}>{showQr ? 'Sembunyikan QR' : 'Scan QR'}</button>}</div></div>{showQr && notifSettings?.gatewayUrl && <iframe src={`${notifSettings.gatewayUrl.replace(/\/$/, '')}/qr`} title="WhatsApp QR code" style={{ width: '100%', height: 420, border: '1px solid var(--border)', borderRadius: 11, background: '#fff', marginBottom: 16 }} />}<form key={notifSettings ? 'loaded' : 'loading'} className="vps-form" onSubmit={submitNotificationForm}><div className="vps-form-grid"><label>Gateway URL<input name="gatewayUrl" defaultValue={notifSettings?.gatewayUrl ?? ''} placeholder="https://your-gateway.example.com" /></label><label>Gateway API key<input name="gatewayApiKey" defaultValue={notifSettings?.gatewayApiKey ?? ''} placeholder="secret key" /></label><label>Nomor WA owner<input name="ownerPhone" defaultValue={notifSettings?.ownerPhone ?? ''} placeholder="6281234567890" /></label></div><div className="vps-form-actions"><button type="submit" className="primary-button"><Check />Save gateway settings</button></div></form></section>
+    <section className="panel"><div className="panel-head"><div><h2>WhatsApp gateway</h2><p>Baileys self-hosted — URL &amp; API key dari gateway yang Anda jalankan sendiri.</p></div><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>{gatewayStatus !== 'idle' && <span className={`gateway-status ${gatewayStatus}`}>{gatewayStatus === 'checking' ? 'Checking…' : gatewayStatus === 'connected' ? <><Wifi />Connected</> : <><WifiOff />{gatewayStatusError || 'Disconnected'}</>}</span>}<button type="button" className="outline-button" onClick={testGatewayConnection} disabled={gatewayStatus === 'checking'}><Wifi />{gatewayStatus === 'checking' ? 'Testing…' : 'Test connection'}</button>{notifSettings?.gatewayUrl && <button type="button" className="outline-button" onClick={() => setShowQr(v => !v)}>{showQr ? 'Sembunyikan QR' : 'Scan QR'}</button>}{notifSettings?.gatewayUrl && <button type="button" className="outline-button" onClick={resetGatewaySession} disabled={gatewayResetting}><RefreshCw />{gatewayResetting ? 'Mereset…' : 'Reset session'}</button>}</div></div>{showQr && notifSettings?.gatewayUrl && <iframe src={`${notifSettings.gatewayUrl.replace(/\/$/, '')}/qr`} title="WhatsApp QR code" style={{ width: '100%', height: 420, border: '1px solid var(--border)', borderRadius: 11, background: '#fff', marginBottom: 16 }} />}<form key={notifSettings ? 'loaded' : 'loading'} className="vps-form" onSubmit={submitNotificationForm}><div className="vps-form-grid"><label>Gateway URL<input name="gatewayUrl" defaultValue={notifSettings?.gatewayUrl ?? ''} placeholder="https://your-gateway.example.com" /></label><label>Gateway API key<input name="gatewayApiKey" defaultValue={notifSettings?.gatewayApiKey ?? ''} placeholder="secret key" /></label><label>Nomor WA owner<input name="ownerPhone" defaultValue={notifSettings?.ownerPhone ?? ''} placeholder="6281234567890" /></label></div><div className="vps-form-actions"><button type="submit" className="primary-button"><Check />Save gateway settings</button></div></form></section>
 
     <section className="panel" style={{ marginTop: 16 }}><div className="panel-head"><div><h2>Notification rules</h2><p>Pilih siapa yang menerima WA untuk tiap jenis kejadian.</p></div></div><div style={{ marginTop: 16 }}>{notifRules.map(r => <div className="notify-rule-card" key={r.eventType}><div className="notify-rule-row"><div className="rule-name"><b>{eventTypeLabels[r.eventType]}</b></div><label className="toggle-col rule-active"><span className="toggle"><input type="checkbox" checked={r.active} onChange={e => updateNotifRule(r.eventType, { active: e.target.checked })} /><span className="slider" /></span><span>Aktif</span></label><label className="toggle-col"><span className="toggle"><input type="checkbox" checked={r.notifyOwner} onChange={e => updateNotifRule(r.eventType, { notifyOwner: e.target.checked })} /><span className="slider" /></span><span>Notify owner</span></label><label className="toggle-col"><span className="toggle"><input type="checkbox" checked={r.notifyClient} onChange={e => updateNotifRule(r.eventType, { notifyClient: e.target.checked })} /><span className="slider" /></span><span>Notify client</span></label></div></div>)}</div></section>
 

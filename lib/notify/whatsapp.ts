@@ -83,6 +83,29 @@ export async function checkGatewayHealth(): Promise<{ ok: boolean; connected?: b
 // Fails silently by design — a WhatsApp delivery problem must never break
 // the ingest/withdrawal flow that triggered it. Routes to the owner and/or
 // the account's customer depending on the event's notification_rules row.
+// Clears the gateway's saved WhatsApp session and forces a fresh QR pairing
+// — used after a logout (e.g. removed from Linked Devices) since the
+// gateway no longer auto-retries that on its own, to avoid hammering
+// WhatsApp's servers with a reconnect loop.
+export async function resetGateway(): Promise<{ ok: boolean; error?: string }> {
+  const [settings] = await db.select().from(notificationSettings).limit(1)
+  if (!settings?.gatewayUrl || !settings?.gatewayApiKey) return { ok: false, error: 'Gateway belum dikonfigurasi' }
+  try {
+    const res = await fetch(`${settings.gatewayUrl.replace(/\/$/, '')}/reset`, {
+      method: 'POST',
+      headers: { 'X-Api-Key': settings.gatewayApiKey },
+      signal: AbortSignal.timeout(15000),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      return { ok: false, error: body.error || `Gateway returned ${res.status}` }
+    }
+    return { ok: true }
+  } catch {
+    return { ok: false, error: 'Tidak bisa menghubungi gateway' }
+  }
+}
+
 export async function notifyEvent(eventType: EventType, message: string, opts: { accountId?: string } = {}) {
   try {
     const [settings] = await db.select().from(notificationSettings).limit(1)
