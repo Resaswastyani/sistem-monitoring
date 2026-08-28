@@ -216,11 +216,24 @@ app.get('/health', (_req, res) => res.json({ connected: isReady, sendingPausedFo
 // Wipes the saved session and forces a fresh QR pairing. Useful when the
 // session gets into a bad state (e.g. repeated "Bad MAC" decrypt errors
 // after being reconnected many times) — cheaper than deleting the volume.
+// Rate-limited: repeated relinking in a short window is exactly the pattern
+// that gets a number flagged by WhatsApp, so this refuses to fire again too
+// soon rather than letting frustration-driven retries make things worse.
+const RESET_COOLDOWN_MS = 3 * 60 * 1000
+let lastResetAt = 0
+
 app.post('/reset', async (req, res) => {
   const key = req.header('X-Api-Key')
   if (key !== API_KEY) return res.status(401).json({ error: 'Invalid API key' })
 
+  const sinceLast = Date.now() - lastResetAt
+  if (sinceLast < RESET_COOLDOWN_MS) {
+    const waitSec = Math.ceil((RESET_COOLDOWN_MS - sinceLast) / 1000)
+    return res.status(429).json({ error: `Reset dipakai terlalu sering — coba lagi dalam ${waitSec} detik. Relink berulang cepat memicu pembatasan WhatsApp.` })
+  }
+
   try {
+    lastResetAt = Date.now()
     await resetSession()
     res.json({ ok: true })
   } catch (err) {
